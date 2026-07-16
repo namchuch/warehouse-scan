@@ -379,10 +379,19 @@ const SCAN_FORMATS = [
 ];
 
 function startCamera() {
-  state.scanner = new Html5Qrcode('reader', { formatsToSupport: SCAN_FORMATS });
+  state.scanner = new Html5Qrcode('reader', {
+    formatsToSupport: SCAN_FORMATS,
+    // באייפון/אנדרואיד חדשים — מפענח ברקודים נייטיב, מהיר ומדויק בהרבה מ-JS
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+  });
   state.scanner.start(
     { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 280, height: 140 } },
+    {
+      fps: 15,
+      // אזור סריקה רחב — כמעט כל רוחב הפריים
+      qrbox: (w, h) => ({ width: Math.floor(w * 0.92), height: Math.floor(Math.min(h * 0.5, 320)) }),
+      videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+    },
     text => handleCode(text),
     () => {} // פריימים בלי ברקוד — רעש נורמלי
   ).catch(err => {
