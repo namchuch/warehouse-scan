@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>מדבקות מיקום למחסן — 105×70</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; background: #f4f5f7; padding: 16px; }
+
+  #form { background: #fff; border-radius: 12px; padding: 16px; max-width: 640px; margin: 0 auto 20px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  #form h1 { font-size: 20px; margin-bottom: 12px; }
+  .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .field { flex: 1; min-width: 90px; }
+  .field label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
+  .field input { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; text-align: center; }
+  textarea { width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 8px; direction: ltr; }
+  .btns { display: flex; gap: 10px; margin-top: 12px; }
+  .btns button { flex: 1; padding: 13px; font-size: 15px; font-weight: 600; border: none; border-radius: 10px; }
+  #btnGen { background: #1a73e8; color: #fff; }
+  #btnPrint { background: #188038; color: #fff; }
+  .note { font-size: 12px; color: #888; margin-top: 8px; line-height: 1.6; }
+
+  /* גיליון מדבקות A4: 2 עמודות × 4 שורות, כל מדבקה 105×70 מ"מ */
+  #labels { display: grid; grid-template-columns: repeat(2, 105mm); justify-content: center; direction: ltr; }
+  .lbl {
+    width: 105mm; height: 70mm;
+    border: 1px dashed #bbb;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3mm; padding: 6mm;
+    background: #fff; overflow: hidden;
+    break-inside: avoid; page-break-inside: avoid;
+    direction: rtl;
+  }
+  .lbl .title { font-size: 22px; font-weight: 800; text-align: center; }
+  .lbl svg { max-width: 92mm; }
+
+  @media print {
+    @page { size: A4; margin: 8.5mm 0; } /* 4 שורות × 70 מ"מ = 280; השאר מתחלק למעלה ולמטה */
+    body { background: #fff; padding: 0; }
+    #form { display: none; }
+    .lbl { border: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="form">
+  <h1>🏷️ מדבקות מיקום — גיליונות 105×70 מ"מ (8 בעמוד)</h1>
+  <div class="row">
+    <div class="field"><label>אזור (אות)</label><input id="area" value="A"></div>
+    <div class="field"><label>עמודה מ-</label><input id="colFrom" type="number" value="1"></div>
+    <div class="field"><label>עד</label><input id="colTo" type="number" value="4"></div>
+    <div class="field"><label>מדף מ-</label><input id="shelfFrom" type="number" value="1"></div>
+    <div class="field"><label>עד</label><input id="shelfTo" type="number" value="7"></div>
+  </div>
+  <div class="row"><div class="field" style="flex:100%">
+    <label>או רשימה מותאמת — מיקום בכל שורה (למשל B-2-5). אם מלא, מתעלמים מהשדות למעלה.</label>
+    <textarea id="custom" rows="3" placeholder="A-1-1&#10;B-3-2"></textarea>
+  </div></div>
+  <div class="btns">
+    <button id="btnGen">צור מדבקות</button>
+    <button id="btnPrint">🖨️ הדפסה</button>
+  </div>
+  <div class="note">
+    מותאם לגיליונות A4 של 2×4 מדבקות בגודל 105×70 מ"מ.<br>
+    <b>בחלון ההדפסה:</b> גודל נייר A4, קנה מידה 100% (לא "התאם לעמוד"), בלי שוליים נוספים.<br>
+    מומלץ להדפיס עמוד ראשון על נייר רגיל ולהצמיד מול גיליון מדבקות לאור — לוודא יישור לפני הדפסה על המדבקות עצמן.
+  </div>
+</div>
+
+<div id="labels"></div>
+
+<script>
+'use strict';
+
+function generate() {
+  const custom = document.getElementById('custom').value.trim();
+  let locs = [];
+
+  if (custom) {
+    locs = custom.split('\n').map(s => s.trim().toUpperCase()).filter(Boolean);
+  } else {
+    const area = document.getElementById('area').value.trim().toUpperCase();
+    const cf = +document.getElementById('colFrom').value, ct = +document.getElementById('colTo').value;
+    const sf = +document.getElementById('shelfFrom').value, st = +document.getElementById('shelfTo').value;
+    if (!area || ct < cf || st < sf) { alert('בדקי את הטווחים'); return; }
+    for (let c = cf; c <= ct; c++)
+      for (let s = sf; s <= st; s++)
+        locs.push(area + '-' + c + '-' + s);
+  }
+
+  const wrap = document.getElementById('labels');
+  wrap.innerHTML = '';
+  locs.forEach(loc => {
+    const parts = loc.split('-');
+    const div = document.createElement('div');
+    div.className = 'lbl';
+    const title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = parts.length === 3
+      ? 'אזור ' + parts[0] + ' · עמודה ' + parts[1] + ' · מדף ' + parts[2]
+      : loc;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    div.appendChild(title);
+    div.appendChild(svg);
+    wrap.appendChild(div);
+    JsBarcode(svg, 'LOC-' + loc, { format: 'CODE128', height: 80, width: 3, fontSize: 22, margin: 6 });
+  });
+}
+
+document.getElementById('btnGen').onclick = generate;
+document.getElementById('btnPrint').onclick = () => window.print();
+generate();
+</script>
+</body>
+</html>
