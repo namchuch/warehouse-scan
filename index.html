@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="robots" content="noindex, nofollow">
+<title>סריקת מיקומי מלאי</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; background: #f4f5f7; color: #1a1a2e; padding-bottom: 90px; }
+
+  /* שער PIN */
+  #pinGate { position: fixed; inset: 0; background: #f4f5f7; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #pinGate .box { background: #fff; border-radius: 16px; padding: 28px 22px; max-width: 340px; width: 100%; text-align: center; box-shadow: 0 4px 18px rgba(0,0,0,.12); }
+  #pinGate h1 { font-size: 20px; margin-bottom: 6px; }
+  #pinGate p { font-size: 13px; color: #777; margin-bottom: 16px; }
+  #pinInput { width: 100%; padding: 14px; font-size: 24px; letter-spacing: 8px; text-align: center; border: 2px solid #1a73e8; border-radius: 10px; direction: ltr; }
+  #pinGo { width: 100%; margin-top: 12px; padding: 14px; font-size: 16px; font-weight: 700; border: none; border-radius: 10px; background: #1a73e8; color: #fff; }
+  #pinErr { color: #d93025; font-size: 13px; margin-top: 10px; min-height: 18px; }
+
+  /* מיקום פעיל */
+  #locBar { position: sticky; top: 0; z-index: 10; padding: 14px 16px; text-align: center; color: #fff; background: #9aa0a6; transition: background .25s; }
+  #locBar.active { background: #188038; }
+  #locBar .label { font-size: 13px; opacity: .9; }
+  #locBar .value { font-size: 30px; font-weight: 800; letter-spacing: 1px; direction: ltr; }
+  #locBar .hint { font-size: 12px; opacity: .85; margin-top: 2px; }
+
+  /* מונים */
+  #stats { display: flex; gap: 8px; padding: 10px 12px; }
+  .stat { flex: 1; background: #fff; border-radius: 10px; padding: 8px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .stat b { display: block; font-size: 20px; }
+  .stat span { font-size: 11px; color: #666; }
+  #statPending b.warn { color: #d93025; }
+
+  /* אזור סריקה */
+  #reader { margin: 0 12px; border-radius: 12px; overflow: hidden; background: #000; min-height: 40px; }
+  #modeRow { display: flex; gap: 8px; padding: 10px 12px; }
+  #modeRow button { flex: 1; padding: 12px; font-size: 15px; font-weight: 600; border: 2px solid #d0d3d9; border-radius: 10px; background: #fff; color: #444; }
+  #modeRow button.on { border-color: #1a73e8; color: #1a73e8; background: #e8f0fe; }
+
+  #manualRow { display: none; padding: 0 12px 6px; gap: 8px; }
+  #manualRow.show { display: flex; }
+  #manualInput { flex: 1; padding: 14px; font-size: 18px; border: 2px solid #1a73e8; border-radius: 10px; direction: ltr; text-align: center; }
+  #manualRow button { padding: 0 20px; font-size: 16px; border: none; border-radius: 10px; background: #1a73e8; color: #fff; }
+  #photoRow { display: none; padding: 4px 12px 6px; }
+  #photoRow.show { display: block; }
+  #btnPhoto { width: 100%; padding: 16px; font-size: 17px; font-weight: 700; border: none; border-radius: 12px; background: #188038; color: #fff; }
+
+  /* הודעות */
+  #toast { position: fixed; bottom: 96px; right: 12px; left: 12px; z-index: 30; padding: 14px; border-radius: 12px; color: #fff; font-size: 15px; text-align: center; display: none; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+  #toast.ok { background: #188038; } #toast.err { background: #d93025; } #toast.warn { background: #e37400; }
+
+  /* דיאלוג אישור */
+  #confirm { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 40; display: none; align-items: center; justify-content: center; padding: 20px; }
+  #confirm .box { background: #fff; border-radius: 14px; padding: 20px; max-width: 380px; width: 100%; }
+  #confirm .box p { margin-bottom: 16px; font-size: 15px; line-height: 1.5; }
+  #confirm .box .btns { display: flex; gap: 10px; }
+  #confirm .box button { flex: 1; padding: 13px; font-size: 15px; font-weight: 600; border: none; border-radius: 10px; }
+  #confirmYes { background: #1a73e8; color: #fff; } #confirmNo { background: #eee; }
+
+  /* רשימת סריקות */
+  #list { padding: 8px 12px; }
+  .scan { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .scan.unknown { border-right: 4px solid #e37400; }
+  .scan .info { flex: 1; min-width: 0; }
+  .scan .name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scan .meta { font-size: 12px; color: #777; direction: ltr; text-align: right; }
+  .scan .loc { font-size: 13px; font-weight: 700; color: #188038; direction: ltr; }
+  .scan .undo { border: none; background: #fbe9e7; color: #d93025; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+  .scan .cloud { font-size: 15px; }
+
+  #footer { position: fixed; bottom: 0; right: 0; left: 0; background: #fff; border-top: 1px solid #e0e0e0; padding: 10px 12px; font-size: 12px; color: #888; text-align: center; }
+</style>
+</head>
+<body>
+
+<div id="pinGate"><div class="box">
+  <h1>🏷️ סריקת מיקומי מלאי</h1>
+  <p>הקלידי את קוד הגישה שקיבלת</p>
+  <input id="pinInput" inputmode="numeric" autocomplete="off" placeholder="••••••">
+  <button id="pinGo">כניסה</button>
+  <div id="pinErr"></div>
+</div></div>
+
+<div id="locBar">
+  <div class="label">מיקום פעיל</div>
+  <div class="value" id="locValue">— אין —</div>
+  <div class="hint" id="locHint">סרקי/סרוק מדבקת מדף (LOC-...) כדי להתחיל</div>
+</div>
+
+<div id="stats">
+  <div class="stat"><b id="statSession">0</b><span>נסרקו עכשיו</span></div>
+  <div class="stat" id="statPending"><b>0</b><span>ממתינים לשמירה</span></div>
+  <div class="stat"><b id="statCatalog">…</b><span>פריטים בקטלוג</span></div>
+</div>
+
+<div id="modeRow">
+  <button id="btnCamera">📷 מצלמה</button>
+  <button id="btnHardware">🔫 סורק / ידני</button>
+</div>
+
+<div id="reader"></div>
+
+<div id="manualRow">
+  <input id="manualInput" placeholder="סרקי לכאן או הקלידי ברקוד" autocomplete="off">
+  <button id="manualGo">הוסף</button>
+</div>
+
+<div id="photoRow"><button id="btnPhoto">📸 צלמי את הברקוד</button></div>
+<input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none">
+
+<div id="list"></div>
+
+<div id="toast"></div>
+
+<div id="confirm"><div class="box">
+  <p id="confirmText"></p>
+  <div class="btns"><button id="confirmYes">כן</button><button id="confirmNo">לא</button></div>
+</div></div>
+
+<div id="footer" dir="rtl">כל סריקה נשמרת אוטומטית לגיליון. אם אין קליטה — הסריקות נשמרות בטלפון ויסתנכרנו כשתחזור רשת.</div>
+
+<script>
+'use strict';
+
+// כתובת הפריסה של ה-Apps Script (מסתיימת ב-/exec)
+const API_URL = 'https://script.google.com/macros/s/AKfycbxKQAnZdCTs-97F70zpCmNRx3FdlgZzoA1RmOenyB0qp9X0bptJjhX6kDLRMOHa2EIk3g/exec';
+const MAX_BATCH = 10; // שמירה ב-GET — שומרים על URL קצר
+
+const LOC_PREFIX = /^LOC[-_]/i;
+const state = {
+  loc: null,
+  catalog: new Map(),   // barcode -> {sku, name, size}
+  existing: new Map(),  // barcode -> last known location
+  session: [],          // scans from this session (newest first)
+  pending: [],          // scans not yet saved to the sheet
+  sending: false,
+  lastCode: null,
+  lastCodeAt: 0,
+  scanner: null,
+  mode: null,
+};
+
+// ─────── תקשורת לשרת ───────
+
+function getPin() { try { return localStorage.getItem('scanPin') || ''; } catch (e) { return ''; } }
+
+function api(params) {
+  const q = Object.keys(params)
+    .map(k => k + '=' + encodeURIComponent(params[k]))
+    .join('&');
+  return fetch(API_URL + '?' + q + '&pin=' + encodeURIComponent(getPin()))
+    .then(r => r.json());
+}
+
+function showPinGate(msg) {
+  document.getElementById('pinGate').style.display = 'flex';
+  document.getElementById('pinErr').textContent = msg || '';
+}
+
+// ─────── עזרי UI ───────
+
+function $(id) { return document.getElementById(id); }
+
+let toastTimer = null;
+function toast(msg, kind) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = kind;
+  el.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = 'none'; }, 2600);
+}
+
+function beep(freq, ms) {
+  try {
+    const ctx = beep.ctx || (beep.ctx = new (window.AudioContext || window.webkitAudioContext)());
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.frequency.value = freq; osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.value = 0.25;
+    osc.start(); osc.stop(ctx.currentTime + ms / 1000);
+  } catch (e) {}
+  if (navigator.vibrate) navigator.vibrate(ms);
+}
+const beepOk = () => beep(880, 90);
+const beepLoc = () => { beep(660, 80); setTimeout(() => beep(990, 80), 110); };
+const beepErr = () => beep(200, 250);
+
+function ask(text, cb) {
+  $('confirmText').textContent = text;
+  $('confirm').style.display = 'flex';
+  $('confirmYes').onclick = () => { $('confirm').style.display = 'none'; cb(true); };
+  $('confirmNo').onclick = () => { $('confirm').style.display = 'none'; cb(false); };
+}
+
+function renderStats() {
+  $('statSession').textContent = state.session.filter(s => !s.cancelled).length;
+  const p = $('statPending').querySelector('b');
+  p.textContent = state.pending.length;
+  p.className = state.pending.length ? 'warn' : '';
+}
+
+function renderLoc() {
+  const bar = $('locBar');
+  if (state.loc) {
+    bar.classList.add('active');
+    $('locValue').textContent = state.loc;
+    $('locHint').textContent = 'כל פריט שנסרק עכשיו ישויך למיקום הזה';
+  } else {
+    bar.classList.remove('active');
+    $('locValue').textContent = '— אין —';
+    $('locHint').textContent = 'סרקי/סרוק מדבקת מדף (LOC-...) כדי להתחיל';
+  }
+}
+
+function renderList() {
+  const list = $('list');
+  list.innerHTML = '';
+  state.session.filter(s => !s.cancelled).slice(0, 30).forEach(s => {
+    const div = document.createElement('div');
+    div.className = 'scan' + (s.unknown ? ' unknown' : '');
+    div.innerHTML =
+      '<div class="info">' +
+        '<div class="name">' + escapeHtml(s.name || 'לא מזוהה בקטלוג') + (s.size ? ' · ' + s.size : '') + '</div>' +
+        '<div class="meta">' + escapeHtml(s.barcode) + '</div>' +
+      '</div>' +
+      '<div class="loc">' + escapeHtml(s.loc) + '</div>' +
+      '<span class="cloud">' + (s.saved ? '✅' : '⏳') + '</span>';
+    const undo = document.createElement('button');
+    undo.className = 'undo'; undo.textContent = 'בטל';
+    undo.onclick = () => cancelScan(s);
+    div.appendChild(undo);
+    list.appendChild(div);
+  });
+  renderStats();
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ─────── לוגיקת סריקה ───────
+
+function handleCode(raw) {
+  const code = String(raw || '').trim().toUpperCase();
+  if (!code) return;
+
+  // מסנן קריאות כפולות של המצלמה על אותו ברקוד
+  const now = Date.now();
+  if (code === state.lastCode && now - state.lastCodeAt < 2500) return;
+  state.lastCode = code; state.lastCodeAt = now;
+
+  if (LOC_PREFIX.test(code)) {
+    state.loc = code.replace(LOC_PREFIX, '');
+    renderLoc();
+    beepLoc();
+    toast('מיקום פעיל: ' + state.loc, 'ok');
+    return;
+  }
+
+  if (!state.loc) {
+    beepErr();
+    toast('קודם סרקי מדבקת מיקום (LOC-...)', 'err');
+    return;
+  }
+
+  const item = state.catalog.get(code);
+  const prevLoc = state.existing.get(code);
+
+  const commit = () => addScan(code, item);
+
+  if (!item) {
+    beepErr();
+    ask('הברקוד ' + code + ' לא נמצא בקטלוג החנות. לשמור בכל זאת? (יופיע בגיליון "לא מזוהים")', yes => { if (yes) commit(); });
+    return;
+  }
+  if (prevLoc && prevLoc !== state.loc) {
+    beepErr();
+    ask((item.name || code) + (item.size ? ' ' + item.size : '') + ' כבר רשום במיקום ' + prevLoc + '. לעדכן ל-' + state.loc + '?', yes => { if (yes) commit(); });
+    return;
+  }
+  if (prevLoc === state.loc) {
+    toast('כבר נסרק במיקום הזה 👍', 'warn');
+    beepOk();
+    return;
+  }
+  commit();
+}
+
+function addScan(barcode, item) {
+  const scan = {
+    uuid: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+    ts: Date.now(),
+    barcode: barcode,
+    sku: item ? item.sku : '',
+    name: item ? item.name : '',
+    size: item ? item.size : '',
+    loc: state.loc,
+    unknown: !item,
+    saved: false,
+    cancelled: false,
+  };
+  state.session.unshift(scan);
+  state.pending.push(scan);
+  state.existing.set(barcode, state.loc);
+  persistPending();
+  beepOk();
+  toast((item ? (item.name + (item.size ? ' · ' + item.size : '')) : barcode) + ' ← ' + state.loc, 'ok');
+  renderList();
+  flushPending();
+}
+
+function cancelScan(scan) {
+  scan.cancelled = true;
+  state.existing.delete(scan.barcode);
+  const idx = state.pending.indexOf(scan);
+  if (idx >= 0) {
+    state.pending.splice(idx, 1); // עוד לא נשמר — פשוט לא נשלח
+    persistPending();
+  } else {
+    api({ api: 'cancel', uuid: scan.uuid }).catch(() => {}); // כבר בגיליון — מסמנים מבוטל
+  }
+  renderList();
+  toast('הסריקה בוטלה', 'warn');
+}
+
+// ─────── שמירה לשרת + תור אופליין ───────
+
+function pickScan(s) {
+  return { uuid: s.uuid, ts: s.ts, barcode: s.barcode, sku: s.sku, name: s.name, size: s.size, loc: s.loc, unknown: s.unknown };
+}
+
+function persistPending() {
+  try { localStorage.setItem('pendingScans', JSON.stringify(state.pending.map(pickScan))); } catch (e) {}
+}
+
+function flushPending() {
+  if (state.sending || !state.pending.length) return;
+  state.sending = true;
+  const batch = state.pending.slice(0, MAX_BATCH);
+  api({ api: 'save', data: JSON.stringify(batch.map(pickScan)) })
+    .then(res => {
+      state.sending = false;
+      if (!res.ok) {
+        if (/PIN/.test(res.error || '')) showPinGate('קוד הגישה השתנה — הקלידי שוב');
+        return;
+      }
+      const savedIds = new Set(res.uuids || []);
+      state.pending = state.pending.filter(s => !savedIds.has(s.uuid));
+      state.session.forEach(s => { if (savedIds.has(s.uuid)) s.saved = true; });
+      persistPending();
+      renderList();
+      if (state.pending.length) flushPending();
+    })
+    .catch(() => { state.sending = false; }); // ריטריי בטיימר
+}
+setInterval(flushPending, 15000);
+
+// ─────── מצבי קלט ───────
+
+function setMode(mode) {
+  if (state.mode === mode) return;
+  state.mode = mode;
+  $('btnCamera').classList.toggle('on', mode === 'camera');
+  $('btnHardware').classList.toggle('on', mode === 'hardware');
+  $('manualRow').classList.toggle('show', mode === 'hardware');
+
+  if (mode === 'camera') startCamera();
+  else stopCamera().then(() => $('manualInput').focus());
+}
+
+const SCAN_FORMATS = [
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.UPC_A,
+];
+
+function startCamera() {
+  state.scanner = new Html5Qrcode('reader', { formatsToSupport: SCAN_FORMATS });
+  state.scanner.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 280, height: 140 } },
+    text => handleCode(text),
+    () => {} // פריימים בלי ברקוד — רעש נורמלי
+  ).catch(err => {
+    // אין הרשאה/מצלמה — נשארת האופציה לצלם תמונה או לסרוק/להקליד
+    state.scanner = null;
+    setMode('hardware');
+    $('photoRow').classList.add('show');
+    toast('המצלמה החיה לא נפתחה — אפשר לצלם ברקוד 📸 או לסרוק/להקליד', 'warn');
+  });
+}
+
+function stopCamera() {
+  const s = state.scanner;
+  state.scanner = null;
+  return (s ? s.stop().then(() => s.clear()) : Promise.resolve()).catch(() => {});
+}
+
+$('btnCamera').onclick = () => setMode('camera');
+$('btnHardware').onclick = () => setMode('hardware');
+
+// פענוח ברקוד מתמונה — גיבוי כשאין מצלמה חיה
+let photoScanner = null;
+$('btnPhoto').onclick = () => $('photoInput').click();
+$('photoInput').addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  toast('מפענחת את התמונה…', 'warn');
+  photoScanner = photoScanner || new Html5Qrcode('reader', { formatsToSupport: SCAN_FORMATS });
+  photoScanner.scanFile(file, false)
+    .then(text => handleCode(text))
+    .catch(() => {
+      beepErr();
+      toast('לא זוהה ברקוד בתמונה — צלמי שוב, קרוב וממוקד על הברקוד', 'err');
+    });
+});
+
+// סורק חומרה מתנהג כמקלדת: מקליד את הקוד ולוחץ Enter
+$('manualInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    handleCode(e.target.value);
+    e.target.value = '';
+  }
+});
+$('manualGo').onclick = () => {
+  handleCode($('manualInput').value);
+  $('manualInput').value = '';
+  $('manualInput').focus();
+};
+
+// ─────── אתחול ───────
+
+function loadBootstrap() {
+  api({ api: 'bootstrap' })
+    .then(res => {
+      if (!res.ok) { showPinGate(res.error === 'PIN שגוי' ? 'קוד שגוי — נסי שוב' : (res.error || 'שגיאה')); return; }
+      $('pinGate').style.display = 'none';
+      state.catalog.clear();
+      res.catalog.forEach(r => state.catalog.set(String(r[0]).trim().toUpperCase(), { sku: r[1], name: r[2], size: r[3] }));
+      Object.keys(res.existing).forEach(k => { if (!state.existing.has(k)) state.existing.set(k, res.existing[k]); });
+      $('statCatalog').textContent = res.catalogCount;
+      if (!res.catalogCount) toast('הקטלוג ריק! בגיליון: תפריט "מיפוי מחסן" ← רענון קטלוג', 'err');
+      try { localStorage.setItem('catalogCache', JSON.stringify(res.catalog)); } catch (e) {}
+      if (!state.mode) setMode('camera');
+      flushPending();
+    })
+    .catch(() => {
+      // אין רשת — עובדים מהמטמון המקומי
+      let cached = [];
+      try { cached = JSON.parse(localStorage.getItem('catalogCache') || '[]'); } catch (e) {}
+      if (cached.length) {
+        $('pinGate').style.display = 'none';
+        cached.forEach(r => state.catalog.set(String(r[0]).trim().toUpperCase(), { sku: r[1], name: r[2], size: r[3] }));
+        $('statCatalog').textContent = cached.length + ' (מטמון)';
+        toast('אין חיבור לשרת — עובדים אופליין, הכל יסתנכרן אחר כך', 'warn');
+        if (!state.mode) setMode('camera');
+      } else {
+        showPinGate('אין חיבור לשרת — בדקי רשת ונסי שוב');
+      }
+    });
+}
+
+$('pinGo').onclick = () => {
+  const pin = $('pinInput').value.trim();
+  if (!pin) return;
+  try { localStorage.setItem('scanPin', pin); } catch (e) {}
+  $('pinErr').textContent = 'בודקת…';
+  loadBootstrap();
+};
+$('pinInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('pinGo').onclick(); });
+
+function boot() {
+  // סריקות שלא הספיקו להישמר בפעם הקודמת
+  try {
+    const saved = JSON.parse(localStorage.getItem('pendingScans') || '[]');
+    saved.forEach(s => { s.saved = false; s.cancelled = false; state.pending.push(s); state.session.push(s); });
+  } catch (e) {}
+  renderList();
+
+  if (getPin()) loadBootstrap();
+  else showPinGate();
+}
+boot();
+</script>
+</body>
+</html>
