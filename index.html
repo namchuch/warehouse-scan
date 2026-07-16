@@ -378,10 +378,18 @@ const SCAN_FORMATS = [
   Html5QrcodeSupportedFormats.UPC_A,
 ];
 
+// אם אין BarcodeDetector נייטיב — טוענים פוליפיל WASM (מנוע zxing-cpp, חזק בהרבה מהמפענח JS)
+function ensureDetector() {
+  if ('BarcodeDetector' in window) return Promise.resolve();
+  return import('https://cdn.jsdelivr.net/npm/barcode-detector@2/dist/es/side-effects.min.js')
+    .catch(() => {}); // אם ה-CDN לא נגיש — ממשיכים עם המפענח הרגיל
+}
+
 function startCamera() {
+  ensureDetector().then(() => {
   state.scanner = new Html5Qrcode('reader', {
     formatsToSupport: SCAN_FORMATS,
-    // באייפון/אנדרואיד חדשים — מפענח ברקודים נייטיב, מהיר ומדויק בהרבה מ-JS
+    // משתמש ב-BarcodeDetector (נייטיב או הפוליפיל שטענו) — מדויק ומהיר
     experimentalFeatures: { useBarCodeDetectorIfSupported: true },
   });
   state.scanner.start(
@@ -394,13 +402,22 @@ function startCamera() {
     },
     text => handleCode(text),
     () => {} // פריימים בלי ברקוד — רעש נורמלי
-  ).catch(err => {
+  ).then(() => {
+    // זום ×2 אם המצלמה תומכת — מגדיל את הברקוד בלי להתקרב מעבר למרחק הפוקוס
+    try {
+      const caps = state.scanner.getRunningTrackCapabilities();
+      if (caps && caps.zoom && caps.zoom.max >= 2) {
+        state.scanner.applyVideoConstraints({ advanced: [{ zoom: 2 }] });
+      }
+    } catch (e) {}
+  }).catch(err => {
     // אין הרשאה/מצלמה — נשארת האופציה לצלם תמונה או לסרוק/להקליד
     state.scanner = null;
     setMode('hardware');
     $('photoRow').classList.add('show');
     toast('המצלמה החיה לא נפתחה — אפשר לצלם ברקוד 📸 או לסרוק/להקליד', 'warn');
   });
+  }); // ensureDetector
 }
 
 function stopCamera() {
