@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="robots" content="noindex, nofollow">
 <title>סריקת מיקומי מלאי</title>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; background: #f4f5f7; color: #1a1a2e; padding-bottom: 90px; }
@@ -100,7 +99,7 @@
   <button id="btnHardware">🔫 סורק / ידני</button>
 </div>
 
-<div id="reader"></div>
+<div id="reader"><video id="cam" playsinline muted autoplay style="width:100%; display:block"></video></div>
 
 <div id="manualRow">
   <input id="manualInput" placeholder="סרקי לכאן או הקלידי ברקוד" autocomplete="off">
@@ -370,80 +369,96 @@ function setMode(mode) {
   else stopCamera().then(() => $('manualInput').focus());
 }
 
-const SCAN_FORMATS = [
-  Html5QrcodeSupportedFormats.CODE_128,
-  Html5QrcodeSupportedFormats.EAN_13,
-  Html5QrcodeSupportedFormats.EAN_8,
-  Html5QrcodeSupportedFormats.CODE_39,
-  Html5QrcodeSupportedFormats.UPC_A,
-];
+// ─────── מצלמה חיה: BarcodeDetector (נייטיב או פוליפיל zxing-cpp WASM) ───────
 
-// אם אין BarcodeDetector נייטיב — טוענים פוליפיל WASM (מנוע zxing-cpp, חזק בהרבה מהמפענח JS)
+const BD_FORMATS = ['code_128', 'ean_13', 'ean_8', 'code_39', 'upc_a'];
+let detector = null;
+
 function ensureDetector() {
   if ('BarcodeDetector' in window) return Promise.resolve();
   return import('https://cdn.jsdelivr.net/npm/barcode-detector@2/dist/es/side-effects.min.js')
-    .catch(() => {}); // אם ה-CDN לא נגיש — ממשיכים עם המפענח הרגיל
+    .catch(() => {});
 }
 
-function startCamera() {
-  ensureDetector().then(() => {
-  state.scanner = new Html5Qrcode('reader', {
-    formatsToSupport: SCAN_FORMATS,
-    // משתמש ב-BarcodeDetector (נייטיב או הפוליפיל שטענו) — מדויק ומהיר
-    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-  });
-  state.scanner.start(
-    { facingMode: 'environment' },
-    {
-      fps: 15,
-      // אזור סריקה רחב — כמעט כל רוחב הפריים
-      qrbox: (w, h) => ({ width: Math.floor(w * 0.92), height: Math.floor(Math.min(h * 0.5, 320)) }),
-      videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-    },
-    text => handleCode(text),
-    () => {} // פריימים בלי ברקוד — רעש נורמלי
-  ).then(() => {
-    // זום ×2 אם המצלמה תומכת — מגדיל את הברקוד בלי להתקרב מעבר למרחק הפוקוס
+async function getDetector() {
+  await ensureDetector();
+  if (!('BarcodeDetector' in window)) throw new Error('אין מפענח ברקודים זמין');
+  if (!detector) detector = new BarcodeDetector({ formats: BD_FORMATS });
+  return detector;
+}
+
+async function startCamera() {
+  try {
+    await getDetector();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+    });
+    state.stream = stream;
+    const video = $('cam');
+    video.srcObject = stream;
+    await video.play();
+
+    // זום ×2 אם נתמך — מגדיל את הברקוד בלי להתקרב מעבר למרחק הפוקוס
     try {
-      const caps = state.scanner.getRunningTrackCapabilities();
-      if (caps && caps.zoom && caps.zoom.max >= 2) {
-        state.scanner.applyVideoConstraints({ advanced: [{ zoom: 2 }] });
-      }
+      const track = stream.getVideoTracks()[0];
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      if (caps.zoom && caps.zoom.max >= 2) await track.applyConstraints({ advanced: [{ zoom: 2 }] });
     } catch (e) {}
-  }).catch(err => {
-    // אין הרשאה/מצלמה — נשארת האופציה לצלם תמונה או לסרוק/להקליד
-    state.scanner = null;
+
+    scanLoop_();
+  } catch (err) {
+    stopCamera();
     setMode('hardware');
     $('photoRow').classList.add('show');
     toast('המצלמה החיה לא נפתחה — אפשר לצלם ברקוד 📸 או לסרוק/להקליד', 'warn');
-  });
-  }); // ensureDetector
+  }
+}
+
+// לולאת פענוח: פריים מלא ברזולוציה מלאה ישירות למנוע — בלי כיווץ ביניים
+let scanBusy = false;
+async function scanLoop_() {
+  if (!state.stream) return;
+  if (!scanBusy && $('cam').readyState >= 2) {
+    scanBusy = true;
+    try {
+      const codes = await detector.detect($('cam'));
+      if (codes && codes.length) handleCode(codes[0].rawValue);
+    } catch (e) {}
+    scanBusy = false;
+  }
+  state.loopTimer = setTimeout(scanLoop_, 80);
 }
 
 function stopCamera() {
-  const s = state.scanner;
-  state.scanner = null;
-  return (s ? s.stop().then(() => s.clear()) : Promise.resolve()).catch(() => {});
+  clearTimeout(state.loopTimer);
+  if (state.stream) {
+    state.stream.getTracks().forEach(t => t.stop());
+    state.stream = null;
+  }
+  $('cam').srcObject = null;
+  return Promise.resolve();
 }
 
 $('btnCamera').onclick = () => setMode('camera');
 $('btnHardware').onclick = () => setMode('hardware');
 
 // פענוח ברקוד מתמונה — גיבוי כשאין מצלמה חיה
-let photoScanner = null;
 $('btnPhoto').onclick = () => $('photoInput').click();
-$('photoInput').addEventListener('change', e => {
+$('photoInput').addEventListener('change', async e => {
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
   if (!file) return;
   toast('מפענחת את התמונה…', 'warn');
-  photoScanner = photoScanner || new Html5Qrcode('reader', { formatsToSupport: SCAN_FORMATS });
-  photoScanner.scanFile(file, false)
-    .then(text => handleCode(text))
-    .catch(() => {
-      beepErr();
-      toast('לא זוהה ברקוד בתמונה — צלמי שוב, קרוב וממוקד על הברקוד', 'err');
-    });
+  try {
+    const d = await getDetector();
+    const bmp = await createImageBitmap(file);
+    const codes = await d.detect(bmp);
+    if (!codes || !codes.length) throw new Error('none');
+    handleCode(codes[0].rawValue);
+  } catch (err) {
+    beepErr();
+    toast('לא זוהה ברקוד בתמונה — צלמי שוב, קרוב וממוקד על הברקוד', 'err');
+  }
 });
 
 // סורק חומרה מתנהג כמקלדת: מקליד את הקוד ולוחץ Enter
