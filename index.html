@@ -137,7 +137,9 @@ const state = {
   sending: false,
   lastCode: null,
   lastCodeAt: 0,
-  scanner: null,
+  stream: null,
+  loopTimer: null,
+  dialogOpen: false,
   mode: null,
 };
 
@@ -149,8 +151,11 @@ function api(params) {
   const q = Object.keys(params)
     .map(k => k + '=' + encodeURIComponent(params[k]))
     .join('&');
-  return fetch(API_URL + '?' + q + '&pin=' + encodeURIComponent(getPin()))
-    .then(r => r.json());
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000); // בקשה תקועה לא תנעל את תור השמירה
+  return fetch(API_URL + '?' + q + '&pin=' + encodeURIComponent(getPin()), { signal: ctrl.signal })
+    .then(r => r.json())
+    .finally(() => clearTimeout(timer));
 }
 
 function showPinGate(msg) {
@@ -172,9 +177,18 @@ function toast(msg, kind) {
   toastTimer = setTimeout(() => { el.style.display = 'none'; }, 2600);
 }
 
+// iOS משתיק אודיו עד נגיעה ראשונה — משחררים את ה-AudioContext במגע הראשון
+document.addEventListener('touchstart', () => {
+  try {
+    beep.ctx = beep.ctx || new (window.AudioContext || window.webkitAudioContext)();
+    beep.ctx.resume();
+  } catch (e) {}
+}, { once: true, passive: true });
+
 function beep(freq, ms) {
   try {
     const ctx = beep.ctx || (beep.ctx = new (window.AudioContext || window.webkitAudioContext)());
+    if (ctx.state === 'suspended') ctx.resume();
     const osc = ctx.createOscillator(), gain = ctx.createGain();
     osc.frequency.value = freq; osc.connect(gain); gain.connect(ctx.destination);
     gain.gain.value = 0.25;
@@ -187,10 +201,17 @@ const beepLoc = () => { beep(660, 80); setTimeout(() => beep(990, 80), 110); };
 const beepErr = () => beep(200, 250);
 
 function ask(text, cb) {
+  state.dialogOpen = true; // עוצר את לולאת הסריקה מלדרוס את השאלה
   $('confirmText').textContent = text;
   $('confirm').style.display = 'flex';
-  $('confirmYes').onclick = () => { $('confirm').style.display = 'none'; cb(true); };
-  $('confirmNo').onclick = () => { $('confirm').style.display = 'none'; cb(false); };
+  const close = (answer) => {
+    $('confirm').style.display = 'none';
+    state.dialogOpen = false;
+    state.lastCode = null; // מאפשר לסרוק שוב מיד את אותו ברקוד אחרי תשובה
+    cb(answer);
+  };
+  $('confirmYes').onclick = () => close(true);
+  $('confirmNo').onclick = () => close(false);
 }
 
 function renderStats() {
@@ -242,6 +263,7 @@ function escapeHtml(s) {
 // ─────── לוגיקת סריקה ───────
 
 function handleCode(raw) {
+  if (state.dialogOpen) return; // שאלה פתוחה על המסך — קודם עונים
   const code = String(raw || '').trim().toUpperCase();
   if (!code) return;
 
@@ -350,7 +372,8 @@ function flushPending() {
       state.session.forEach(s => { if (savedIds.has(s.uuid)) s.saved = true; });
       persistPending();
       renderList();
-      if (state.pending.length) flushPending();
+      // ממשיכים לאצווה הבאה רק אם באמת נשמר משהו — אחרת הטיימר ינסה שוב
+      if (savedIds.size && state.pending.length) flushPending();
     })
     .catch(() => { state.sending = false; }); // ריטריי בטיימר
 }
@@ -374,16 +397,14 @@ function setMode(mode) {
 const BD_FORMATS = ['code_128', 'ean_13', 'ean_8', 'code_39', 'upc_a'];
 let detector = null;
 
-function ensureDetector() {
-  if ('BarcodeDetector' in window) return Promise.resolve();
-  return import('https://cdn.jsdelivr.net/npm/barcode-detector@2/dist/es/side-effects.min.js')
-    .catch(() => {});
-}
-
+// BarcodeDetector נייטיב אם קיים, אחרת פוליפיל WASM (מנוע zxing-cpp)
 async function getDetector() {
-  await ensureDetector();
-  if (!('BarcodeDetector' in window)) throw new Error('אין מפענח ברקודים זמין');
-  if (!detector) detector = new BarcodeDetector({ formats: BD_FORMATS });
+  if (detector) return detector;
+  if (!('BarcodeDetector' in window)) {
+    await import('https://cdn.jsdelivr.net/npm/barcode-detector@2/dist/es/side-effects.min.js').catch(() => {});
+  }
+  if (!('BarcodeDetector' in window)) throw new Error('מנוע הפענוח לא נטען — בדקי חיבור רשת');
+  detector = new BarcodeDetector({ formats: BD_FORMATS });
   return detector;
 }
 
@@ -395,6 +416,9 @@ async function startCamera() {
     });
     state.stream = stream;
     const video = $('cam');
+    // באג ידוע בספארי: muted חייב להיות מוגדר ב-JS, לא רק ב-HTML
+    video.muted = true;
+    video.playsInline = true;
     video.srcObject = stream;
     await video.play();
 
@@ -410,7 +434,7 @@ async function startCamera() {
     stopCamera();
     setMode('hardware');
     $('photoRow').classList.add('show');
-    toast('המצלמה החיה לא נפתחה — אפשר לצלם ברקוד 📸 או לסרוק/להקליד', 'warn');
+    toast('המצלמה החיה לא נפתחה [' + ((err && err.message) || err) + '] — אפשר לצלם 📸 או לסרוק/להקליד', 'warn');
   }
 }
 
@@ -519,7 +543,11 @@ function boot() {
   // סריקות שלא הספיקו להישמר בפעם הקודמת
   try {
     const saved = JSON.parse(localStorage.getItem('pendingScans') || '[]');
-    saved.forEach(s => { s.saved = false; s.cancelled = false; state.pending.push(s); state.session.push(s); });
+    saved.forEach(s => {
+      s.saved = false; s.cancelled = false;
+      state.pending.push(s); state.session.push(s);
+      state.existing.set(String(s.barcode).toUpperCase(), s.loc); // שהאזהרות יכירו גם סריקות שטרם נשמרו
+    });
   } catch (e) {}
   renderList();
 

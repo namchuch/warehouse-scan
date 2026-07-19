@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>מדבקות מיקום למחסן — 105×70</title>
+<title>מדבקות מיקום למחסן</title>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; background: #f4f5f7; padding: 16px; }
 
-  #form { background: #fff; border-radius: 12px; padding: 16px; max-width: 640px; margin: 0 auto 20px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  #form { background: #fff; border-radius: 12px; padding: 16px; max-width: 680px; margin: 0 auto 20px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
   #form h1 { font-size: 20px; margin-bottom: 12px; }
   .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
   .field { flex: 1; min-width: 90px; }
   .field label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
-  .field input { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; text-align: center; }
+  .field input, .field select { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; text-align: center; background: #fff; }
   textarea { width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 8px; direction: ltr; }
   .btns { display: flex; gap: 10px; margin-top: 12px; }
   .btns button { flex: 1; padding: 13px; font-size: 15px; font-weight: 600; border: none; border-radius: 10px; }
@@ -23,22 +23,31 @@
   #btnPrint { background: #188038; color: #fff; }
   .note { font-size: 12px; color: #888; margin-top: 8px; line-height: 1.6; }
 
-  /* גיליון מדבקות A4: 2 עמודות × 4 שורות, כל מדבקה 105×70 מ"מ */
-  #labels { display: grid; grid-template-columns: repeat(2, 105mm); justify-content: center; direction: ltr; }
+  #labels { display: grid; justify-content: center; direction: ltr; }
   .lbl {
-    width: 105mm; height: 70mm;
     border: 1px dashed #bbb;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 3mm; padding: 6mm;
     background: #fff; overflow: hidden;
     break-inside: avoid; page-break-inside: avoid;
     direction: rtl;
   }
-  .lbl .title { font-size: 22px; font-weight: 800; text-align: center; }
-  .lbl svg { max-width: 92mm; }
+  .lbl .title { font-weight: 800; text-align: center; white-space: nowrap; }
+
+  /* גיליון 52.5×35 מ"מ — 4 עמודות × 8 שורות (32 בעמוד) */
+  #labels.small { grid-template-columns: repeat(4, 52.5mm); }
+  #labels.small .lbl { width: 52.5mm; height: 35mm; padding: 1.5mm 2mm; gap: 0.5mm; }
+  #labels.small .title { font-size: 11px; }
+  #labels.small svg { max-width: 47mm; max-height: 24mm; }
+
+  /* גיליון 105×70 מ"מ — 2 עמודות × 4 שורות (8 בעמוד) */
+  #labels.big { grid-template-columns: repeat(2, 105mm); }
+  #labels.big .lbl { width: 105mm; height: 70mm; padding: 6mm; gap: 3mm; }
+  #labels.big .title { font-size: 22px; }
+  #labels.big svg { max-width: 92mm; }
 
   @media print {
-    @page { size: A4; margin: 8.5mm 0; } /* 4 שורות × 70 מ"מ = 280; השאר מתחלק למעלה ולמטה */
+    /* בשני הגיליונות גובה התוכן 280 מ"מ — נשארים 8.5 מ"מ למעלה ולמטה */
+    @page { size: A4; margin: 8.5mm 0; }
     body { background: #fff; padding: 0; }
     #form { display: none; }
     .lbl { border: none; }
@@ -48,7 +57,16 @@
 <body>
 
 <div id="form">
-  <h1>🏷️ מדבקות מיקום — גיליונות 105×70 מ"מ (8 בעמוד)</h1>
+  <h1>🏷️ מדבקות מיקום למחסן</h1>
+  <div class="row">
+    <div class="field" style="flex: 2; min-width: 180px;">
+      <label>גודל גיליון מדבקות</label>
+      <select id="size">
+        <option value="small" selected>52.5×35 מ"מ — 32 בעמוד</option>
+        <option value="big">105×70 מ"מ — 8 בעמוד</option>
+      </select>
+    </div>
+  </div>
   <div class="row">
     <div class="field"><label>אזור (אות)</label><input id="area" value="A"></div>
     <div class="field"><label>עמודה מ-</label><input id="colFrom" type="number" value="1"></div>
@@ -57,7 +75,7 @@
     <div class="field"><label>עד</label><input id="shelfTo" type="number" value="7"></div>
   </div>
   <div class="row"><div class="field" style="flex:100%">
-    <label>או רשימה מותאמת — מיקום בכל שורה (למשל B-2-5). אם מלא, מתעלמים מהשדות למעלה.</label>
+    <label>או רשימה מותאמת — מיקום בכל שורה (למשל B-2-5). אם מלא, מתעלמים מהטווחים למעלה.</label>
     <textarea id="custom" rows="3" placeholder="A-1-1&#10;B-3-2"></textarea>
   </div></div>
   <div class="btns">
@@ -65,18 +83,24 @@
     <button id="btnPrint">🖨️ הדפסה</button>
   </div>
   <div class="note">
-    מותאם לגיליונות A4 של 2×4 מדבקות בגודל 105×70 מ"מ.<br>
     <b>בחלון ההדפסה:</b> גודל נייר A4, קנה מידה 100% (לא "התאם לעמוד"), בלי שוליים נוספים.<br>
     מומלץ להדפיס עמוד ראשון על נייר רגיל ולהצמיד מול גיליון מדבקות לאור — לוודא יישור לפני הדפסה על המדבקות עצמן.
   </div>
 </div>
 
-<div id="labels"></div>
+<div id="labels" class="small"></div>
 
 <script>
 'use strict';
 
+// פרמטרי ברקוד לכל גודל גיליון
+const BARCODE_OPTS = {
+  small: { format: 'CODE128', height: 42, width: 1.6, fontSize: 12, margin: 2 },
+  big:   { format: 'CODE128', height: 80, width: 3,   fontSize: 22, margin: 6 },
+};
+
 function generate() {
+  const size = document.getElementById('size').value;
   const custom = document.getElementById('custom').value.trim();
   let locs = [];
 
@@ -93,6 +117,7 @@ function generate() {
   }
 
   const wrap = document.getElementById('labels');
+  wrap.className = size;
   wrap.innerHTML = '';
   locs.forEach(loc => {
     const parts = loc.split('-');
@@ -107,11 +132,12 @@ function generate() {
     div.appendChild(title);
     div.appendChild(svg);
     wrap.appendChild(div);
-    JsBarcode(svg, 'LOC-' + loc, { format: 'CODE128', height: 80, width: 3, fontSize: 22, margin: 6 });
+    JsBarcode(svg, 'LOC-' + loc, BARCODE_OPTS[size]);
   });
 }
 
 document.getElementById('btnGen').onclick = generate;
+document.getElementById('size').onchange = generate;
 document.getElementById('btnPrint').onclick = () => window.print();
 generate();
 </script>
