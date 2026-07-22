@@ -291,12 +291,25 @@ function handleCode(raw) {
 
   const commit = () => addScan(code, item);
 
+  // במצב סורק חומרה אין מי שיאשר על המסך (המחסנאי רץ במחסן) —
+  // שומרים הכל בלי לעצור: לא-מזוהים נכנסים עם סטטוס "לא מזוהה" ועוברים עליהם אחר כך בגיליון,
+  // והעברת מיקום מתקבלת אוטומטית (הסריקה האחרונה קובעת).
   if (!item) {
+    if (state.mode === 'hardware') {
+      commit();
+      toast('⚠️ ' + code + ' לא בקטלוג — נשמר במיקום ' + state.loc + ' לבדיקה בגיליון', 'warn');
+      return;
+    }
     beepErr();
     ask('הברקוד ' + code + ' לא נמצא בקטלוג החנות. לשמור בכל זאת? (יופיע בגיליון "לא מזוהים")', yes => { if (yes) commit(); });
     return;
   }
   if (prevLoc && prevLoc !== state.loc) {
+    if (state.mode === 'hardware') {
+      commit();
+      toast((item.name || code) + (item.size ? ' ' + item.size : '') + ': עודכן מ-' + prevLoc + ' ל-' + state.loc, 'warn');
+      return;
+    }
     beepErr();
     ask((item.name || code) + (item.size ? ' ' + item.size : '') + ' כבר רשום במיקום ' + prevLoc + '. לעדכן ל-' + state.loc + '?', yes => { if (yes) commit(); });
     return;
@@ -497,6 +510,34 @@ $('manualGo').onclick = () => {
   $('manualInput').value = '';
   $('manualInput').focus();
 };
+
+// לכידה גלובלית של סורק-מקלדת: הסורק "מקליד" מהר ומסיים ב-Enter.
+// תופס סריקות גם כששדה הקלט איבד פוקוס — בלי צורך לרענן את הדף.
+let wedgeBuf = '', wedgeAt = 0;
+document.addEventListener('keydown', e => {
+  if (state.mode !== 'hardware') return;
+  const t = e.target;
+  if (t === $('manualInput') || t === $('pinInput')) return; // לשדות האלה יש טיפול משלהם
+  const now = Date.now();
+  if (now - wedgeAt > 300) wedgeBuf = ''; // הפסקה ארוכה בין תווים = לא סורק, מתחילים מחדש
+  wedgeAt = now;
+  if (e.key === 'Enter') {
+    if (wedgeBuf.length >= 3) { e.preventDefault(); handleCode(wedgeBuf); }
+    wedgeBuf = '';
+  } else if (e.key.length === 1) {
+    wedgeBuf += e.key;
+  }
+});
+
+// מחזירים את הפוקוס לשדה הקלט כשחוזרים לחלון או לוחצים על רקע הדף
+function refocusManual() {
+  if (state.mode === 'hardware' && !state.dialogOpen &&
+      $('pinGate').style.display === 'none') $('manualInput').focus();
+}
+window.addEventListener('focus', refocusManual);
+document.addEventListener('click', e => {
+  if (!e.target.closest('button, input, textarea, select, a')) refocusManual();
+});
 
 // ─────── אתחול ───────
 
