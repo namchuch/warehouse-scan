@@ -262,9 +262,25 @@ function escapeHtml(s) {
 
 // ─────── לוגיקת סריקה ───────
 
+// ניקוי קוד שהגיע מסורק-מקלדת:
+// 1) תווי בקרה וקידומת AIM (למשל ]C1) שחלק מהסורקים מוסיפים
+// 2) מקלדת שנשארה על עברית — הסורק "מקליד" מקשים והמערכת מפרשת אותם כאותיות עבריות;
+//    ממירים כל אות עברית חזרה לתו שעל אותו מקש בפריסה האנגלית
+const HEB2LAT = {
+  'ש':'A','נ':'B','ב':'C','ג':'D','ק':'E','כ':'F','ע':'G','י':'H','ן':'I','ח':'J','ל':'K','ך':'L','צ':'M',
+  'מ':'N','ם':'O','פ':'P','/':'Q','ר':'R','ד':'S','א':'T','ו':'U','ה':'V',"'":'W','ס':'X','ט':'Y','ז':'Z',
+  'ת':',','ץ':'.','ף':';',
+};
+function normalizeCode(raw) {
+  let code = String(raw || '').replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  code = code.replace(/^\][A-Za-z][0-9A-Za-z]/, '');
+  if (/[א-ת]/.test(code)) code = code.split('').map(c => HEB2LAT[c] || c).join('');
+  return code.toUpperCase();
+}
+
 function handleCode(raw) {
   if (state.dialogOpen) return; // שאלה פתוחה על המסך — קודם עונים
-  const code = String(raw || '').trim().toUpperCase();
+  const code = normalizeCode(raw);
   if (!code) return;
 
   // מסנן קריאות כפולות של המצלמה על אותו ברקוד
@@ -282,7 +298,8 @@ function handleCode(raw) {
 
   if (!state.loc) {
     beepErr();
-    toast('קודם סרקי מדבקת מיקום (LOC-...)', 'err');
+    // מציגים מה התקבל בפועל — עוזר לאבחן סורק שמוסיף קידומת או מקלדת בפריסה לא צפויה
+    toast('קודם סרקי מדבקת מיקום (LOC-...) — התקבל: ' + code, 'err');
     return;
   }
 
